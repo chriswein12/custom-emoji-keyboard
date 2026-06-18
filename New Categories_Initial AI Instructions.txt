@@ -1,0 +1,67 @@
+1. Smileys
+1F600 - 1F64A
+
+2. Hearts
+1F48C - 1F48B
+
+3. Emotions
+1f4af - 1f4a4
+
+4. Hands
+1f448 - 1f933 1f3ff
+
+5. Body
+1f4aa - 1fae6
+
+6. People Actions
+1f476 - 1f937 1f3ff 200d 2640
+
+7. People Roles
+1f9d1 200d 2695 fe0f - 1f469 1f3ff 200d 1f9bd 200d 27a1
+
+8. People Activities
+1F3C3 - 1F6CC 1F3FF
+
+9. People Love and Family
+1F9D1 200D 1F91D 200D 1F9D1 - 1F9B2                                                  
+
+10. Animals
+1F435 - 1F9A0
+
+11. Plants
+1F490 - 1FABE
+
+12. Food & Dining
+1F347 - 1F3FA
+
+13. Places & Buildings
+1F30D - 1F3AA
+
+14. Travel
+1F682 - 1F9F3
+
+15. Time
+231B - 1F566
+
+16. Sky & Weather
+1F311 - 1F30A
+
+17. Events
+1F383 - 1F3AB
+
+18. Awards and Sports
+1F396 FE0F - 1F94C
+
+19. Objects
+1F3AF - 1FAAA
+
+20. Signs and Symbols
+1F3E7 - 1F532 + (1F1FA 1F1F8) 
+
+Notes:
+- If Windows 10 does not support a specific emoji yet, you can skip that one.
+- For emojis that have skin-tones listed, just do the "light skin tone" version. Skip medium-light, medium,  medium-dark, and dark skin tone emojis, since for now this is just for my use and the others wouldn't make sense for me. I may add others back in later.
+- The very last section, which is flags, you can skip, as I very rarely use that section. Just include the USA flag in Signs & Symbols section, and the rest you can leave out.
+
+How to view the emoji-test.txt file:
+Look at it like a human would - as sequential lines and blocks. Since it is CLDR order, look at the provided ranges in these instructions as the starting and ending boundaries of the given blocks, the first line and the last line of the block. Focus on the Emojis themselves first, and just look at the code points as unique identifiers, and not a numerical order.

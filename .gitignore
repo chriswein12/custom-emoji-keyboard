@@ -1,0 +1,16 @@
+# Personal organization folders — local only
+Source Data/
+New Font from Windows 11/
+Old Font from Windows 10/
+
+# Build artifacts
+__pycache__/
+*.pyc
+dist/
+build/
+*.spec
+*.exe
+*.code-workspace
+
+# Large source data file
+emoji-test.txt
