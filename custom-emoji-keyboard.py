@@ -1,31 +1,39 @@
 #!/usr/bin/env python3
 """
-Emoji Picker  v1.0
-─────────────────────────────────────────────────────────────────
-Lightweight Windows emoji keyboard with 20 custom categories.
+Emoji Picker  v1.1
+────────────────────────────────────────────────────────────────────
+Lightweight Windows emoji keyboard — 20 custom categories.
+
+SETUP
+  pip install pillow          ← required for full-color emoji rendering
 
 USAGE
-  Run directly:          python custom-emoji-keyboard.py
-  AutoHotkey launcher:   see launch_emoji.ahk  (bind to any hotkey)
-  Compile to .exe:       pyinstaller --onefile --windowed custom-emoji-keyboard.py
+  python emoji_picker.py      ← run directly
+  See launch_emoji.ahk        ← bind to any hotkey via AutoHotkey v2
 
 CONTROLS
-  Click emoji   → copy to clipboard, then Ctrl+V wherever you need it
-  Search bar    → filter by name across all categories
-  Escape        → close
-  Click outside → close
-─────────────────────────────────────────────────────────────────
+  Click emoji   → copied to clipboard; paste with Ctrl+V anywhere
+  Search bar    → search emoji by name across all categories
+  Escape / click outside → close
+────────────────────────────────────────────────────────────────────
 """
 import tkinter as tk
 from tkinter import ttk
-import ctypes, ctypes.wintypes, platform
+import ctypes, ctypes.wintypes, platform, os
 
-# ══════════════════════════════════════════════════════════════
+# ── Optional: Pillow for full-color emoji rendering ──────────────
+try:
+    from PIL import Image, ImageDraw, ImageFont, ImageTk
+    HAS_PIL = True
+except ImportError:
+    HAS_PIL = False
+
+# ════════════════════════════════════════════════════════════════════
 #  EMBEDDED EMOJI DATA  (auto-generated)
-#  • Base (yellow/default) + light skin tone variants included
+#  • Base (yellow/default) + light-skin-tone variants included
 #  • Medium-light / medium / medium-dark / dark tones excluded
-#  • Only fully-qualified Unicode sequences
-# ══════════════════════════════════════════════════════════════
+#  • Fully-qualified Unicode sequences only
+# ════════════════════════════════════════════════════════════════════
 EMOJI_DATA = {
     "Smileys": [("😀", "grinning face"), ("😃", "grinning face with big eyes"), ("😄", "grinning face with smiling eyes"), ("😁", "beaming face with smiling eyes"), ("😆", "grinning squinting face"), ("😅", "grinning face with sweat"), ("🤣", "rolling on the floor laughing"), ("😂", "face with tears of joy"), ("🙂", "slightly smiling face"), ("🙃", "upside-down face"), ("🫠", "melting face"), ("😉", "winking face"), ("😊", "smiling face with smiling eyes"), ("😇", "smiling face with halo"), ("🥰", "smiling face with hearts"), ("😍", "smiling face with heart-eyes"), ("🤩", "star-struck"), ("😘", "face blowing a kiss"), ("😗", "kissing face"), ("☺️", "smiling face"), ("😚", "kissing face with closed eyes"), ("😙", "kissing face with smiling eyes"), ("🥲", "smiling face with tear"), ("😋", "face savoring food"), ("😛", "face with tongue"), ("😜", "winking face with tongue"), ("🤪", "zany face"), ("😝", "squinting face with tongue"), ("🤑", "money-mouth face"), ("🤗", "smiling face with open hands"), ("🤭", "face with hand over mouth"), ("🫢", "face with open eyes and hand over mouth"), ("🫣", "face with peeking eye"), ("🤫", "shushing face"), ("🤔", "thinking face"), ("🫡", "saluting face"), ("🤐", "zipper-mouth face"), ("🤨", "face with raised eyebrow"), ("😐", "neutral face"), ("😑", "expressionless face"), ("😶", "face without mouth"), ("🫥", "dotted line face"), ("😶‍🌫️", "face in clouds"), ("😏", "smirking face"), ("😒", "unamused face"), ("🙄", "face with rolling eyes"), ("😬", "grimacing face"), ("😮‍💨", "face exhaling"), ("🤥", "lying face"), ("🫨", "shaking face"), ("🙂‍↔️", "head shaking horizontally"), ("🙂‍↕️", "head shaking vertically"), ("😌", "relieved face"), ("😔", "pensive face"), ("😪", "sleepy face"), ("🤤", "drooling face"), ("😴", "sleeping face"), ("🫩", "face with bags under eyes"), ("😷", "face with medical mask"), ("🤒", "face with thermometer"), ("🤕", "face with head-bandage"), ("🤢", "nauseated face"), ("🤮", "face vomiting"), ("🤧", "sneezing face"), ("🥵", "hot face"), ("🥶", "cold face"), ("🥴", "woozy face"), ("😵", "face with crossed-out eyes"), ("😵‍💫", "face with spiral eyes"), ("🤯", "exploding head"), ("🤠", "cowboy hat face"), ("🥳", "partying face"), ("🥸", "disguised face"), ("😎", "smiling face with sunglasses"), ("🤓", "nerd face"), ("🧐", "face with monocle"), ("😕", "confused face"), ("🫤", "face with diagonal mouth"), ("😟", "worried face"), ("🙁", "slightly frowning face"), ("☹️", "frowning face"), ("😮", "face with open mouth"), ("😯", "hushed face"), ("😲", "astonished face"), ("😳", "flushed face"), ("🫪", "distorted face"), ("🥺", "pleading face"), ("🥹", "face holding back tears"), ("😦", "frowning face with open mouth"), ("😧", "anguished face"), ("😨", "fearful face"), ("😰", "anxious face with sweat"), ("😥", "sad but relieved face"), ("😢", "crying face"), ("😭", "loudly crying face"), ("😱", "face screaming in fear"), ("😖", "confounded face"), ("😣", "persevering face"), ("😞", "disappointed face"), ("😓", "downcast face with sweat"), ("😩", "weary face"), ("😫", "tired face"), ("🥱", "yawning face"), ("😤", "face with steam from nose"), ("😡", "enraged face"), ("😠", "angry face"), ("🤬", "face with symbols on mouth"), ("😈", "smiling face with horns"), ("👿", "angry face with horns"), ("💀", "skull"), ("☠️", "skull and crossbones"), ("💩", "pile of poo"), ("🤡", "clown face"), ("👹", "ogre"), ("👺", "goblin"), ("👻", "ghost"), ("👽", "alien"), ("👾", "alien monster"), ("🤖", "robot"), ("😺", "grinning cat"), ("😸", "grinning cat with smiling eyes"), ("😹", "cat with tears of joy"), ("😻", "smiling cat with heart-eyes"), ("😼", "cat with wry smile"), ("😽", "kissing cat"), ("🙀", "weary cat"), ("😿", "crying cat"), ("😾", "pouting cat"), ("🙈", "see-no-evil monkey"), ("🙉", "hear-no-evil monkey"), ("🙊", "speak-no-evil monkey")],
     "Hearts": [("💌", "love letter"), ("💘", "heart with arrow"), ("💝", "heart with ribbon"), ("💖", "sparkling heart"), ("💗", "growing heart"), ("💓", "beating heart"), ("💞", "revolving hearts"), ("💕", "two hearts"), ("💟", "heart decoration"), ("❣️", "heart exclamation"), ("💔", "broken heart"), ("❤️‍🔥", "heart on fire"), ("❤️‍🩹", "mending heart"), ("❤️", "red heart"), ("🩷", "pink heart"), ("🧡", "orange heart"), ("💛", "yellow heart"), ("💚", "green heart"), ("💙", "blue heart"), ("🩵", "light blue heart"), ("💜", "purple heart"), ("🤎", "brown heart"), ("🖤", "black heart"), ("🩶", "grey heart"), ("🤍", "white heart"), ("💋", "kiss mark")],
@@ -52,7 +60,7 @@ CATEGORY_ICONS = {
     "Smileys":           "😀",  "Hearts":            "❤️",
     "Emotions":          "💯",  "Hands":             "👋",
     "Body":              "💪",  "People Actions":    "🏃",
-    "People Roles":      "👩\u200d⚕️", "People Activities": "🏄",
+    "People Roles":      "👩\u200d⚕️","People Activities": "🏄",
     "Love & Family":     "🤝",  "Animals":           "🐶",
     "Plants":            "🌸",  "Food & Dining":     "🍕",
     "Places & Buildings":"🏛️",  "Travel":            "✈️",
@@ -61,46 +69,76 @@ CATEGORY_ICONS = {
     "Objects":           "🎯",  "Signs & Symbols":   "🔣",
 }
 
-# ══════════════════════════════════════════════════════════════
+# ════════════════════════════════════════════════════════════════════
 #  THEME
-# ══════════════════════════════════════════════════════════════
+# ════════════════════════════════════════════════════════════════════
 BG         = "#1e1e2e"
 BG_SIDEBAR = "#161622"
 BG_CARD    = "#2a2a3d"
-BG_HOVER   = "#3a3a55"
+BG_HOVER   = "#3d3d58"
 BG_SEL     = "#0078d4"
 FG         = "#cdd6f4"
-FG_DIM     = "#585b6e"
+FG_DIM     = "#555570"
 ACCENT     = "#89b4fa"
 
-FONT_EMOJI = ("Segoe UI Emoji", 17)
-FONT_UI    = ("Segoe UI",       9)
-FONT_SIDE  = ("Segoe UI Emoji", 9)
+FONT_EMOJI  = ("Segoe UI Emoji", 17)
+FONT_UI     = ("Segoe UI", 9)
+FONT_SIDE   = ("Segoe UI Emoji", 9)
 
 WIN_W, WIN_H = 780, 520
-COLS         = 13          # emoji columns per row
+CELL         = 46   # px per emoji cell (grid)
+SB_W         = 154  # sidebar width
+
+# ════════════════════════════════════════════════════════════════════
+#  WIN32 CLIPBOARD  — reliably handles multi-codepoint emoji
+# ════════════════════════════════════════════════════════════════════
+def _win32_copy(text: str) -> bool:
+    """Copy text to clipboard via Win32 API. Returns True on success."""
+    try:
+        k32 = ctypes.windll.kernel32
+        u32 = ctypes.windll.user32
+        CF_UNICODETEXT = 13
+        GMEM_MOVEABLE  = 0x0002
+        raw = text.encode("utf-16-le") + b"\x00\x00"
+        h   = k32.GlobalAlloc(GMEM_MOVEABLE, len(raw))
+        ptr = k32.GlobalLock(h)
+        ctypes.memmove(ptr, raw, len(raw))
+        k32.GlobalUnlock(h)
+        u32.OpenClipboard(0)
+        u32.EmptyClipboard()
+        u32.SetClipboardData(CF_UNICODETEXT, h)
+        u32.CloseClipboard()
+        return True
+    except Exception:
+        return False
 
 
-# ══════════════════════════════════════════════════════════════
+# ════════════════════════════════════════════════════════════════════
 #  EMOJI PICKER
-# ══════════════════════════════════════════════════════════════
+# ════════════════════════════════════════════════════════════════════
 class EmojiPicker:
     def __init__(self):
         self.root = tk.Tk()
         self.root.withdraw()
+
         self._cur_cat       = None
         self._search_active = False
+        self._photo_cache   = {}   # emoji_char -> ImageTk.PhotoImage (or None)
+        self._pil_font      = None
 
         self._dpi_aware()
+        self._load_pil_font()
         self._build_ui()
-        self._position_near_cursor()
+        self._position()
 
         self.root.deiconify()
         self.root.lift()
         self.root.focus_force()
+        # Defer first render — window appears immediately, then populates
+        self.root.after(0, lambda: self._sel_cat(next(iter(EMOJI_DATA))))
         self.root.mainloop()
 
-    # ── DPI awareness ──────────────────────────────────────────
+    # ── DPI ──────────────────────────────────────────────────────────
     def _dpi_aware(self):
         if platform.system() == "Windows":
             try:
@@ -108,20 +146,68 @@ class EmojiPicker:
             except Exception:
                 pass
 
-    # ── Position near mouse cursor ─────────────────────────────
-    def _position_near_cursor(self):
+    # ── PIL font ─────────────────────────────────────────────────────
+    def _load_pil_font(self):
+        if not HAS_PIL:
+            return
+        candidates = [
+            r"C:\Windows\Fonts\seguiemj.ttf",
+            os.path.expandvars(r"%WINDIR%\Fonts\seguiemj.ttf"),
+        ]
+        size = CELL - 10
+        for path in candidates:
+            try:
+                self._pil_font = ImageFont.truetype(path, size)
+                return
+            except Exception:
+                continue
+
+    # ── Emoji → PhotoImage (lazy, cached) ────────────────────────────
+    def _get_photo(self, emoji: str):
+        if emoji in self._photo_cache:
+            return self._photo_cache[emoji]
+        if not HAS_PIL or not self._pil_font:
+            self._photo_cache[emoji] = None
+            return None
+        try:
+            sz   = CELL - 4
+            img  = Image.new("RGBA", (sz, sz), (0, 0, 0, 0))
+            draw = ImageDraw.Draw(img)
+            # measure and center
+            bb = draw.textbbox((0, 0), emoji, font=self._pil_font,
+                               embedded_color=True)
+            ew, eh = bb[2] - bb[0], bb[3] - bb[1]
+            ox = (sz - ew) // 2 - bb[0]
+            oy = (sz - eh) // 2 - bb[1]
+            draw.text((ox, oy), emoji, font=self._pil_font,
+                      embedded_color=True)
+            photo = ImageTk.PhotoImage(img)
+            self._photo_cache[emoji] = photo
+            return photo
+        except Exception:
+            self._photo_cache[emoji] = None
+            return None
+
+    # ── Position near cursor (multi-monitor safe) ─────────────────────
+    def _position(self):
         self.root.update_idletasks()
         sw = self.root.winfo_screenwidth()
         sh = self.root.winfo_screenheight()
         pt = ctypes.wintypes.POINT()
         ctypes.windll.user32.GetCursorPos(ctypes.byref(pt))
-        x = min(pt.x + 10, sw - WIN_W - 10)
-        y = min(pt.y + 10, sh - WIN_H - 50)
-        x = max(0, x)
-        y = max(0, y)
+        mx, my = pt.x, pt.y
+
+        # Prefer opening below-right; flip if near screen edge
+        x = mx + 10
+        y = my + 10
+        if x + WIN_W > sw:
+            x = mx - WIN_W - 10
+        if y + WIN_H > sh:
+            y = my - WIN_H - 10
+        # Do NOT clamp to 0 — supports negative coords on left-of-primary monitors
         self.root.geometry(f"{WIN_W}x{WIN_H}+{x}+{y}")
 
-    # ── Build UI ───────────────────────────────────────────────
+    # ── Build UI ─────────────────────────────────────────────────────
     def _build_ui(self):
         r = self.root
         r.title("Emoji Picker")
@@ -129,13 +215,14 @@ class EmojiPicker:
         r.resizable(True, True)
         r.minsize(540, 380)
 
-        # ttk scrollbar style
+        # ttk style — correct naming: prefix.Vertical.TScrollbar
         s = ttk.Style()
         s.theme_use("clam")
-        s.configure("V.TScrollbar",
-                    troughcolor=BG, background=BG_CARD,
-                    arrowcolor=FG_DIM, borderwidth=0, relief="flat")
-        s.map("V.TScrollbar",
+        s.configure("Custom.Vertical.TScrollbar",
+                    troughcolor=BG_SIDEBAR, background=BG_CARD,
+                    arrowcolor=FG_DIM, borderwidth=0, relief="flat",
+                    width=10)
+        s.map("Custom.Vertical.TScrollbar",
               background=[("active", BG_HOVER), ("!active", BG_CARD)])
 
         r.bind("<Escape>",   lambda e: r.destroy())
@@ -144,8 +231,8 @@ class EmojiPicker:
         outer = tk.Frame(r, bg=BG)
         outer.pack(fill=tk.BOTH, expand=True)
 
-        # ── LEFT SIDEBAR ─────────────────────────────────────
-        sb = tk.Frame(outer, bg=BG_SIDEBAR, width=154)
+        # ── SIDEBAR ────────────────────────────────────────────────
+        sb = tk.Frame(outer, bg=BG_SIDEBAR, width=SB_W)
         sb.pack(side=tk.LEFT, fill=tk.Y)
         sb.pack_propagate(False)
 
@@ -153,12 +240,12 @@ class EmojiPicker:
                  font=FONT_UI, anchor="w", padx=10, pady=7).pack(fill=tk.X)
         tk.Frame(sb, bg=BG_CARD, height=1).pack(fill=tk.X)
 
-        # Scrollable sidebar list
+        # Sidebar scrolls if needed (20 cats usually fit; keep for safety)
         sbc = tk.Canvas(sb, bg=BG_SIDEBAR, highlightthickness=0, bd=0)
-        sbvs = ttk.Scrollbar(sb, orient="vertical",
-                              command=sbc.yview, style="V.TScrollbar")
-        sbc.configure(yscrollcommand=sbvs.set)
-        sbvs.pack(side=tk.RIGHT, fill=tk.Y)
+        sbv = ttk.Scrollbar(sb, orient="vertical", command=sbc.yview,
+                            style="Custom.Vertical.TScrollbar")
+        sbc.configure(yscrollcommand=sbv.set)
+        sbv.pack(side=tk.RIGHT, fill=tk.Y)
         sbc.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
         cf = tk.Frame(sbc, bg=BG_SIDEBAR)
@@ -171,19 +258,16 @@ class EmojiPicker:
         self._cat_btns = {}
         for cat in EMOJI_DATA:
             icon = CATEGORY_ICONS.get(cat, "")
-            lbl = tk.Label(cf,
-                           text=f"  {icon}  {cat}",
-                           bg=BG_SIDEBAR, fg=FG,
-                           font=FONT_SIDE,
-                           anchor="w", pady=5,
-                           cursor="hand2")
+            lbl = tk.Label(cf, text=f"  {icon}  {cat}",
+                           bg=BG_SIDEBAR, fg=FG, font=FONT_SIDE,
+                           anchor="w", pady=5, cursor="hand2")
             lbl.pack(fill=tk.X)
             lbl.bind("<Button-1>", lambda e, c=cat: self._sel_cat(c))
             lbl.bind("<Enter>",    lambda e, b=lbl, c=cat: self._sb_hover(b, c, True))
             lbl.bind("<Leave>",    lambda e, b=lbl, c=cat: self._sb_hover(b, c, False))
             self._cat_btns[cat] = lbl
 
-        # ── RIGHT PANEL ───────────────────────────────────────
+        # ── RIGHT PANEL ─────────────────────────────────────────────
         rp = tk.Frame(outer, bg=BG)
         rp.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
@@ -192,8 +276,7 @@ class EmojiPicker:
         sf.pack(fill=tk.X)
         self._sv = tk.StringVar()
         self._se = tk.Entry(sf, textvariable=self._sv,
-                            bg=BG_CARD, fg=FG_DIM,
-                            insertbackground=FG,
+                            bg=BG_CARD, fg=FG_DIM, insertbackground=FG,
                             font=FONT_UI, relief="flat",
                             highlightthickness=1,
                             highlightbackground=BG_HOVER,
@@ -206,24 +289,24 @@ class EmojiPicker:
 
         tk.Frame(rp, bg=BG_CARD, height=1).pack(fill=tk.X)
 
-        # Emoji canvas + scrollbar
+        # ── Emoji grid: Canvas (fast) + auto-hide Scrollbar ─────────
         gf = tk.Frame(rp, bg=BG)
         gf.pack(fill=tk.BOTH, expand=True)
+        gf.columnconfigure(0, weight=1)
+        gf.rowconfigure(0, weight=1)
 
         self._cv  = tk.Canvas(gf, bg=BG, highlightthickness=0, bd=0)
         self._vsb = ttk.Scrollbar(gf, orient="vertical",
-                                   command=self._cv.yview, style="V.TScrollbar")
+                                   command=self._cv.yview,
+                                   style="Custom.Vertical.TScrollbar")
         self._cv.configure(yscrollcommand=self._vsb.set)
-        self._vsb.pack(side=tk.RIGHT, fill=tk.Y)
-        self._cv.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
-        self._ef = tk.Frame(self._cv, bg=BG)
-        self._cw = self._cv.create_window(0, 0, anchor="nw", window=self._ef)
+        # Use grid so we can show/hide the scrollbar without breaking layout
+        self._cv.grid(row=0, column=0, sticky="nsew")
+        # Scrollbar starts hidden; _update_sb() shows it when needed
 
-        self._ef.bind("<Configure>", self._grid_cfg)
-        self._cv.bind("<Configure>", self._canvas_cfg)
+        self._cv.bind("<Configure>", self._on_cv_resize)
         self._cv.bind("<MouseWheel>", self._wheel)
-        self._ef.bind("<MouseWheel>", self._wheel)
 
         # Status bar
         self._stat = tk.StringVar(value="Click an emoji to copy it to the clipboard")
@@ -233,10 +316,12 @@ class EmojiPicker:
                  font=FONT_UI, anchor="w", padx=10, pady=4
                  ).pack(fill=tk.X, side=tk.BOTTOM)
 
-        # Load first category
-        self._sel_cat(next(iter(EMOJI_DATA)))
+    # ── Sidebar hover ─────────────────────────────────────────────
+    def _sb_hover(self, btn, name, on):
+        if name != self._cur_cat:
+            btn.config(bg=BG_CARD if on else BG_SIDEBAR)
 
-    # ── Category selection ─────────────────────────────────────
+    # ── Category select ───────────────────────────────────────────
     def _sel_cat(self, name):
         if self._search_active:
             self._sv.set("")
@@ -249,50 +334,111 @@ class EmojiPicker:
         self._cur_cat = name
         if name in self._cat_btns:
             self._cat_btns[name].config(bg=BG_SEL, fg="#ffffff")
-        self._render(EMOJI_DATA[name])
+        self._render(EMOJI_DATA.get(name, []))
 
-    def _sb_hover(self, btn, name, on):
-        if name != self._cur_cat:
-            btn.config(bg=BG_CARD if on else BG_SIDEBAR)
-
-    # ── Render emoji grid ──────────────────────────────────────
+    # ── Render emoji grid via Canvas items ───────────────────────
     def _render(self, emoji_list):
-        for w in self._ef.winfo_children():
-            w.destroy()
+        cv = self._cv
+        cv.delete("all")
+
         if not emoji_list:
-            tk.Label(self._ef, text="No results",
-                     bg=BG, fg=FG_DIM, font=FONT_UI,
-                     padx=20, pady=40).grid(row=0, column=0)
-            self._cv.yview_moveto(0)
+            cv.create_text(200, 40, text="No results found",
+                           fill=FG_DIM, font=FONT_UI)
+            cv.configure(scrollregion=(0, 0, 1, 1))
+            self._update_sb()
             return
+
+        cv.update_idletasks()
+        w = cv.winfo_width()
+        if w < CELL:
+            w = WIN_W - SB_W - 20
+
+        cols = max(1, w // CELL)
+        pad  = (w - cols * CELL) // 2   # horizontal centering
+
         for idx, (emoji, name) in enumerate(emoji_list):
-            row, col = divmod(idx, COLS)
-            b = tk.Label(self._ef, text=emoji,
-                         font=FONT_EMOJI, bg=BG_CARD, fg=FG,
-                         padx=3, pady=3, cursor="hand2", relief="flat")
-            b.grid(row=row, column=col, padx=2, pady=2, sticky="nsew")
-            b.bind("<Button-1>",   lambda e, em=emoji:      self._pick(em))
-            b.bind("<Enter>",      lambda e, lb=b, n=name:  self._hon(lb, n))
-            b.bind("<Leave>",      lambda e, lb=b:          self._hoff(lb))
-            b.bind("<MouseWheel>", self._wheel)
-        self._cv.yview_moveto(0)
+            row, col = divmod(idx, cols)
+            x = pad + col * CELL
+            y = row * CELL + 2
+            tag = f"c{idx}"
 
-    def _pick(self, emoji):
-        self.root.clipboard_clear()
-        self.root.clipboard_append(emoji)
-        self.root.update()
-        self._stat.set(f"Copied  {emoji}  — paste with Ctrl+V")
-        self.root.after(130, self.root.destroy)
+            # Card background
+            cv.create_rectangle(x+1, y+1, x+CELL-2, y+CELL-2,
+                                 fill=BG_CARD, outline="", tags=tag)
 
-    def _hon(self, b, name):
-        b.config(bg=BG_HOVER)
+            # Emoji: prefer PIL image (color); fallback to text
+            photo = self._get_photo(emoji) if HAS_PIL else None
+            if photo:
+                cv.create_image(x + CELL//2, y + CELL//2,
+                                image=photo, anchor="center", tags=tag)
+            else:
+                cv.create_text(x + CELL//2, y + CELL//2,
+                               text=emoji, font=FONT_EMOJI, fill=FG,
+                               tags=tag)
+
+            # Hover / click bindings (bound to tag covering rect + content)
+            cv.tag_bind(tag, "<Enter>",
+                lambda e, t=tag, n=name: self._hon(t, n))
+            cv.tag_bind(tag, "<Leave>",
+                lambda e, t=tag: self._hoff(t))
+            cv.tag_bind(tag, "<Button-1>",
+                lambda e, em=emoji: self._pick(em))
+            cv.tag_bind(tag, "<MouseWheel>", self._wheel)
+
+        rows = (len(emoji_list) + cols - 1) // cols
+        cv.configure(scrollregion=(0, 0, w, rows * CELL + 4))
+        cv.yview_moveto(0)
+        self._update_sb()
+
+    def _hon(self, tag, name):
+        # Recolor first item in tag (the rectangle)
+        items = self._cv.find_withtag(tag)
+        if items:
+            self._cv.itemconfig(items[0], fill=BG_HOVER)
         self._stat.set(name)
 
-    def _hoff(self, b):
-        b.config(bg=BG_CARD)
+    def _hoff(self, tag):
+        items = self._cv.find_withtag(tag)
+        if items:
+            self._cv.itemconfig(items[0], fill=BG_CARD)
         self._stat.set("Click an emoji to copy it to the clipboard")
 
-    # ── Search ─────────────────────────────────────────────────
+    # ── Pick / copy emoji ────────────────────────────────────────
+    def _pick(self, emoji):
+        ok = _win32_copy(emoji)
+        if not ok:
+            # Fallback to tkinter clipboard
+            self.root.clipboard_clear()
+            self.root.clipboard_append(emoji)
+            self.root.update()
+        self._stat.set(f"Copied  {emoji}  — paste with Ctrl+V")
+        self.root.after(140, self.root.destroy)
+
+    # ── Auto-hide scrollbar ──────────────────────────────────────
+    def _update_sb(self):
+        try:
+            sr = self._cv.cget("scrollregion")
+            parts = str(sr).split() if sr else []
+            content_h = float(parts[3]) if len(parts) >= 4 else 0
+            view_h    = self._cv.winfo_height()
+            if content_h > view_h + 2:
+                self._vsb.grid(row=0, column=1, sticky="ns")
+            else:
+                self._vsb.grid_remove()
+        except Exception:
+            pass
+
+    # ── Re-render on canvas resize ───────────────────────────────
+    def _on_cv_resize(self, event):
+        if self._cur_cat and not self._search_active:
+            self._render(EMOJI_DATA.get(self._cur_cat, []))
+        self._update_sb()
+
+    # ── Mouse wheel ──────────────────────────────────────────────
+    def _wheel(self, event):
+        self._cv.yview_scroll(-1 * (event.delta // 120), "units")
+
+    # ── Search ───────────────────────────────────────────────────
     def _search_in(self, _):
         if not self._search_active:
             self._se.delete(0, tk.END)
@@ -321,17 +467,7 @@ class EmojiPicker:
                    for em, nm in emojis if q in nm.lower() or q in em]
         self._render(results)
 
-    # ── Canvas / scroll helpers ────────────────────────────────
-    def _grid_cfg(self, _):
-        self._cv.configure(scrollregion=self._cv.bbox("all"))
-
-    def _canvas_cfg(self, e):
-        self._cv.itemconfig(self._cw, width=e.width)
-
-    def _wheel(self, e):
-        self._cv.yview_scroll(-1 * (e.delta // 120), "units")
-
-    # ── Focus-out close ────────────────────────────────────────
+    # ── Focus-out close ──────────────────────────────────────────
     def _focus_out(self, e):
         if e.widget == self.root:
             self.root.after(200, self._check_focus)
