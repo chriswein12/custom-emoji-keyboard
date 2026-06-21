@@ -14,3 +14,9 @@ build/
 
 # Large source data file
 emoji-test.txt
+
+# Generated emoji art — regenerate locally via extraction scripts.
+# Not committed: hundreds of binary PNGs with zero diffability, and
+# they're a build artifact of master_emojis.json, not source of truth.
+Assets/emoji-images/
+Assets/metadata-files/

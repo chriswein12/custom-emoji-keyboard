@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Emoji Picker  v1.1
+Emoji Picker  v1.2
 ────────────────────────────────────────────────────────────────────
 Lightweight Windows emoji keyboard — 20 custom categories.
 
@@ -8,18 +8,21 @@ SETUP
   pip install pillow          ← required for full-color emoji rendering
 
 USAGE
-  python emoji_picker.py      ← run directly
-  See launch_emoji.ahk        ← bind to any hotkey via AutoHotkey v2
+  python custom-emoji-keyboard.py   ← run directly
+  See launch_emoji.ahk               ← bind to any hotkey via AutoHotkey v2
 
 CONTROLS
-  Click emoji   → copied to clipboard; paste with Ctrl+V anywhere
-  Search bar    → search emoji by name across all categories
+  Click emoji        → inserts it directly at your cursor (also copied
+                        to clipboard as a safety net)
+  Hover top-right     → small copy icon appears; click it to copy
+  corner of an emoji     ONLY, without inserting
+  Search bar          → search emoji by name across all categories
   Escape / click outside → close
 ────────────────────────────────────────────────────────────────────
 """
 import tkinter as tk
 from tkinter import ttk
-import ctypes, ctypes.wintypes, platform, os
+import ctypes, ctypes.wintypes, platform, os, time, struct
 
 # ── Optional: Pillow for full-color emoji rendering ──────────────
 try:
@@ -88,27 +91,148 @@ FONT_SIDE   = ("Segoe UI Emoji", 9)
 WIN_W, WIN_H = 780, 520
 CELL         = 46   # px per emoji cell (grid)
 SB_W         = 154  # sidebar width
+CORNER       = 16   # px size of the hover "copy only" zone, top-right of each cell
 
 # ════════════════════════════════════════════════════════════════════
-#  WIN32 CLIPBOARD  — reliably handles multi-codepoint emoji
+#  WIN32 HELPERS
+#  • Clipboard copy (CF_UNICODETEXT via GlobalAlloc/SetClipboardData)
+#  • Direct keystroke insertion (SendInput) — the same mechanism the
+#    native Windows emoji panel (Win+.) uses to type into whatever has
+#    focus, including full surrogate-pair support for emoji.
+#  • Foreground-window capture/restore (AttachThreadInput trick) since
+#    Windows normally blocks SetForegroundWindow from a background app.
+#
+#  IMPORTANT: every handle-returning API below gets an explicit
+#  restype/argtypes. ctypes defaults to treating return values as a
+#  32-bit int; on 64-bit Windows that silently truncates real (64-bit)
+#  handles. That truncation was the actual cause of the "clipboard
+#  entry exists but is empty" bug — GlobalAlloc's handle was getting
+#  corrupted before it ever reached SetClipboardData, which then
+#  failed silently because its result was never checked either.
 # ════════════════════════════════════════════════════════════════════
+_user32   = ctypes.windll.user32
+_kernel32 = ctypes.windll.kernel32
+_wt       = ctypes.wintypes
+
+CF_UNICODETEXT    = 13
+GMEM_MOVEABLE     = 0x0002
+INPUT_KEYBOARD    = 1
+KEYEVENTF_UNICODE = 0x0004
+KEYEVENTF_KEYUP   = 0x0002
+SW_RESTORE        = 9
+
+
+class KEYBDINPUT(ctypes.Structure):
+    _fields_ = [("wVk", ctypes.c_ushort), ("wScan", ctypes.c_ushort),
+                ("dwFlags", ctypes.c_ulong), ("time", ctypes.c_ulong),
+                ("dwExtraInfo", ctypes.c_size_t)]
+
+class MOUSEINPUT(ctypes.Structure):
+    _fields_ = [("dx", ctypes.c_long), ("dy", ctypes.c_long),
+                ("mouseData", ctypes.c_ulong), ("dwFlags", ctypes.c_ulong),
+                ("time", ctypes.c_ulong), ("dwExtraInfo", ctypes.c_size_t)]
+
+class HARDWAREINPUT(ctypes.Structure):
+    _fields_ = [("uMsg", ctypes.c_ulong), ("wParamL", ctypes.c_short),
+                ("wParamH", ctypes.c_ushort)]
+
+class _INPUT_UNION(ctypes.Union):
+    _fields_ = [("ki", KEYBDINPUT), ("mi", MOUSEINPUT), ("hi", HARDWAREINPUT)]
+
+class INPUT(ctypes.Structure):
+    _fields_ = [("type", ctypes.c_ulong), ("union", _INPUT_UNION)]
+
+
+# Explicit signatures — see note above on why this matters.
+_kernel32.GlobalAlloc.restype       = ctypes.c_void_p
+_kernel32.GlobalAlloc.argtypes      = [ctypes.c_uint, ctypes.c_size_t]
+_kernel32.GlobalLock.restype        = ctypes.c_void_p
+_kernel32.GlobalLock.argtypes       = [ctypes.c_void_p]
+_kernel32.GlobalUnlock.argtypes     = [ctypes.c_void_p]
+_kernel32.GlobalFree.argtypes       = [ctypes.c_void_p]
+_user32.OpenClipboard.argtypes      = [_wt.HWND]
+_user32.SetClipboardData.restype    = ctypes.c_void_p
+_user32.SetClipboardData.argtypes   = [ctypes.c_uint, ctypes.c_void_p]
+_user32.GetForegroundWindow.restype = _wt.HWND
+_user32.SetForegroundWindow.argtypes = [_wt.HWND]
+_user32.BringWindowToTop.argtypes   = [_wt.HWND]
+_user32.ShowWindow.argtypes         = [_wt.HWND, ctypes.c_int]
+_user32.GetWindowThreadProcessId.restype  = _wt.DWORD
+_user32.GetWindowThreadProcessId.argtypes = [_wt.HWND, ctypes.POINTER(_wt.DWORD)]
+_user32.AttachThreadInput.argtypes  = [_wt.DWORD, _wt.DWORD, _wt.BOOL]
+_user32.SendInput.restype           = ctypes.c_uint
+_user32.SendInput.argtypes          = [ctypes.c_uint, ctypes.POINTER(INPUT), ctypes.c_int]
+
+
 def _win32_copy(text: str) -> bool:
-    """Copy text to clipboard via Win32 API. Returns True on success."""
+    """Copy text to the clipboard via CF_UNICODETEXT. Returns True on success."""
     try:
-        k32 = ctypes.windll.kernel32
-        u32 = ctypes.windll.user32
-        CF_UNICODETEXT = 13
-        GMEM_MOVEABLE  = 0x0002
         raw = text.encode("utf-16-le") + b"\x00\x00"
-        h   = k32.GlobalAlloc(GMEM_MOVEABLE, len(raw))
-        ptr = k32.GlobalLock(h)
+        h = _kernel32.GlobalAlloc(GMEM_MOVEABLE, len(raw))
+        if not h:
+            return False
+        ptr = _kernel32.GlobalLock(h)
+        if not ptr:
+            _kernel32.GlobalFree(h)
+            return False
         ctypes.memmove(ptr, raw, len(raw))
-        k32.GlobalUnlock(h)
-        u32.OpenClipboard(0)
-        u32.EmptyClipboard()
-        u32.SetClipboardData(CF_UNICODETEXT, h)
-        u32.CloseClipboard()
+        _kernel32.GlobalUnlock(h)
+
+        if not _user32.OpenClipboard(None):
+            _kernel32.GlobalFree(h)
+            return False
+        _user32.EmptyClipboard()
+        ok = _user32.SetClipboardData(CF_UNICODETEXT, h)
+        _user32.CloseClipboard()
+
+        if not ok:
+            _kernel32.GlobalFree(h)   # ownership never transferred — free it
+            return False
+        return True                   # the OS owns the handle now — do NOT free it
+    except Exception:
+        return False
+
+
+def _focus_window(hwnd) -> bool:
+    """Force `hwnd` to the foreground, bypassing Windows' normal
+    restriction on background processes stealing focus."""
+    if not hwnd:
+        return False
+    try:
+        cur_tid    = _kernel32.GetCurrentThreadId()
+        target_tid = _user32.GetWindowThreadProcessId(hwnd, None)
+        attached = False
+        if target_tid and target_tid != cur_tid:
+            attached = bool(_user32.AttachThreadInput(target_tid, cur_tid, True))
+        _user32.ShowWindow(hwnd, SW_RESTORE)
+        _user32.SetForegroundWindow(hwnd)
+        _user32.BringWindowToTop(hwnd)
+        if attached:
+            _user32.AttachThreadInput(target_tid, cur_tid, False)
         return True
+    except Exception:
+        return False
+
+
+def _send_unicode_text(text: str) -> bool:
+    """Type `text` into whatever window currently has keyboard focus,
+    using the same SendInput/KEYEVENTF_UNICODE mechanism the native
+    Windows emoji panel (Win+.) uses. Handles surrogate pairs correctly
+    since most emoji live above the Basic Multilingual Plane."""
+    try:
+        raw   = text.encode("utf-16-le")
+        units = struct.unpack(f"<{len(raw)//2}H", raw)
+
+        events = []
+        for cu in units:
+            events.append(INPUT(type=INPUT_KEYBOARD,
+                           union=_INPUT_UNION(ki=KEYBDINPUT(0, cu, KEYEVENTF_UNICODE, 0, 0))))
+            events.append(INPUT(type=INPUT_KEYBOARD,
+                           union=_INPUT_UNION(ki=KEYBDINPUT(0, cu, KEYEVENTF_UNICODE | KEYEVENTF_KEYUP, 0, 0))))
+
+        n   = len(events)
+        arr = (INPUT * n)(*events)
+        return _user32.SendInput(n, arr, ctypes.sizeof(INPUT)) == n
     except Exception:
         return False
 
@@ -118,6 +242,10 @@ def _win32_copy(text: str) -> bool:
 # ════════════════════════════════════════════════════════════════════
 class EmojiPicker:
     def __init__(self):
+        # Capture whatever window had focus *before* our window steals it —
+        # this is what we restore focus to when inserting an emoji directly.
+        self._prev_hwnd = _user32.GetForegroundWindow()
+
         self.root = tk.Tk()
         self.root.withdraw()
 
@@ -125,6 +253,8 @@ class EmojiPicker:
         self._search_active = False
         self._photo_cache   = {}   # emoji_char -> ImageTk.PhotoImage (or None)
         self._pil_font      = None
+        self._render_meta   = None   # (cols, pad, emoji_list) from last _render()
+        self._corner_idx    = None   # index of cell whose hover-copy icon is shown
 
         self._dpi_aware()
         self._load_pil_font()
@@ -240,18 +370,26 @@ class EmojiPicker:
                  font=FONT_UI, anchor="w", padx=10, pady=7).pack(fill=tk.X)
         tk.Frame(sb, bg=BG_CARD, height=1).pack(fill=tk.X)
 
-        # Sidebar scrolls if needed (20 cats usually fit; keep for safety)
-        sbc = tk.Canvas(sb, bg=BG_SIDEBAR, highlightthickness=0, bd=0)
-        sbv = ttk.Scrollbar(sb, orient="vertical", command=sbc.yview,
+        # Body wrapper uses grid (not pack) so the scrollbar can be
+        # shown/hidden with grid_remove() without disturbing layout —
+        # same auto-hide pattern as the main emoji-grid scrollbar.
+        sb_body = tk.Frame(sb, bg=BG_SIDEBAR)
+        sb_body.pack(fill=tk.BOTH, expand=True)
+        sb_body.columnconfigure(0, weight=1)
+        sb_body.rowconfigure(0, weight=1)
+
+        sbc = tk.Canvas(sb_body, bg=BG_SIDEBAR, highlightthickness=0, bd=0)
+        sbv = ttk.Scrollbar(sb_body, orient="vertical", command=sbc.yview,
                             style="Custom.Vertical.TScrollbar")
         sbc.configure(yscrollcommand=sbv.set)
-        sbv.pack(side=tk.RIGHT, fill=tk.Y)
-        sbc.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        sbc.grid(row=0, column=0, sticky="nsew")
+        # sbv starts hidden; _update_sidebar_sb() shows it only when needed
+        self._sbc, self._sbv = sbc, sbv
 
         cf = tk.Frame(sbc, bg=BG_SIDEBAR)
         sbc.create_window(0, 0, anchor="nw", window=cf)
-        cf.bind("<Configure>",
-                lambda e: sbc.configure(scrollregion=sbc.bbox("all")))
+        cf.bind("<Configure>", self._on_sidebar_cf_resize)
+        sbc.bind("<Configure>", lambda e: self._update_sidebar_sb())
         sbc.bind("<MouseWheel>",
                  lambda e: sbc.yview_scroll(-1*(e.delta//120), "units"))
 
@@ -307,9 +445,12 @@ class EmojiPicker:
 
         self._cv.bind("<Configure>", self._on_cv_resize)
         self._cv.bind("<MouseWheel>", self._wheel)
+        self._cv.bind("<Motion>", self._on_motion)
+        self._cv.bind("<Leave>", lambda e: self._hide_corner_icon())
 
         # Status bar
-        self._stat = tk.StringVar(value="Click an emoji to copy it to the clipboard")
+        self._stat = tk.StringVar(
+            value="Click to insert at cursor  •  hover top-right corner to copy only")
         tk.Frame(rp, bg=BG_CARD, height=1).pack(fill=tk.X, side=tk.BOTTOM)
         tk.Label(rp, textvariable=self._stat,
                  bg=BG_SIDEBAR, fg=FG_DIM,
@@ -338,6 +479,7 @@ class EmojiPicker:
 
     # ── Render emoji grid via Canvas items ───────────────────────
     def _render(self, emoji_list):
+        self._hide_corner_icon()
         cv = self._cv
         cv.delete("all")
 
@@ -345,6 +487,7 @@ class EmojiPicker:
             cv.create_text(200, 40, text="No results found",
                            fill=FG_DIM, font=FONT_UI)
             cv.configure(scrollregion=(0, 0, 1, 1))
+            self._render_meta = None
             self._update_sb()
             return
 
@@ -376,18 +519,21 @@ class EmojiPicker:
                                text=emoji, font=FONT_EMOJI, fill=FG,
                                tags=tag)
 
-            # Hover / click bindings (bound to tag covering rect + content)
+            # Whole-cell hover highlight + click = insert at cursor.
+            # The hover-corner "copy only" affordance is handled
+            # separately by _on_motion (see _show_corner_icon for why
+            # it's drawn on demand rather than as a static item).
             cv.tag_bind(tag, "<Enter>",
                 lambda e, t=tag, n=name: self._hon(t, n))
             cv.tag_bind(tag, "<Leave>",
                 lambda e, t=tag: self._hoff(t))
             cv.tag_bind(tag, "<Button-1>",
-                lambda e, em=emoji: self._pick(em))
-            cv.tag_bind(tag, "<MouseWheel>", self._wheel)
+                lambda e, em=emoji: self._pick_insert(em))
 
         rows = (len(emoji_list) + cols - 1) // cols
         cv.configure(scrollregion=(0, 0, w, rows * CELL + 4))
         cv.yview_moveto(0)
+        self._render_meta = (cols, pad, emoji_list)
         self._update_sb()
 
     def _hon(self, tag, name):
@@ -401,20 +547,96 @@ class EmojiPicker:
         items = self._cv.find_withtag(tag)
         if items:
             self._cv.itemconfig(items[0], fill=BG_CARD)
-        self._stat.set("Click an emoji to copy it to the clipboard")
+        self._stat.set("Click to insert at cursor  •  hover top-right corner to copy only")
 
-    # ── Pick / copy emoji ────────────────────────────────────────
-    def _pick(self, emoji):
+    # ── Hover-corner "copy only" affordance ───────────────────────
+    # Drawn on demand via _on_motion rather than as an always-present
+    # canvas item. A static badge would need an opaque fill to be
+    # clickable, which would permanently clip the top-right corner of
+    # every emoji glyph underneath it — drawing it only while hovered
+    # avoids that entirely.
+    def _on_motion(self, event):
+        meta = self._render_meta
+        if not meta:
+            return
+        cols, pad, emoji_list = meta
+        x = self._cv.canvasx(event.x)
+        y = self._cv.canvasy(event.y)
+
+        col = int((x - pad) // CELL)
+        row = int(y // CELL)
+        in_col = 0 <= col < cols
+        idx = row * cols + col if in_col else -1
+        in_bounds = in_col and 0 <= idx < len(emoji_list)
+
+        if not in_bounds:
+            if self._corner_idx is not None:
+                self._hide_corner_icon()
+            return
+
+        cell_x = pad + col * CELL
+        cell_y = row * CELL
+        local_x = x - cell_x
+        local_y = y - cell_y
+        in_corner = local_x >= CELL - CORNER and local_y <= CORNER
+
+        emoji_char, name = emoji_list[idx]
+        if in_corner:
+            if self._corner_idx != idx:
+                self._show_corner_icon(idx, cell_x, cell_y, emoji_char)
+                self._stat.set("Click to copy only — won't insert")
+        else:
+            if self._corner_idx is not None:
+                self._hide_corner_icon()
+                self._stat.set(name)
+
+    def _show_corner_icon(self, idx, cell_x, cell_y, emoji_char):
+        self._hide_corner_icon()
+        self._corner_idx = idx
+        cv = self._cv
+        x0, y0 = cell_x + CELL - CORNER - 1, cell_y + 1
+        x1, y1 = cell_x + CELL - 2,          cell_y + CORNER
+        cv.create_rectangle(x0, y0, x1, y1, fill=ACCENT, outline="",
+                             tags="corner_icon")
+        cv.create_rectangle(x0+3, y0+5, x1-2, y1-2, outline=BG, width=1,
+                             tags="corner_icon")
+        cv.create_rectangle(x0+5, y0+3, x1,   y1-4, outline=BG, width=1,
+                             fill=ACCENT, tags="corner_icon")
+        cv.tag_bind("corner_icon", "<Button-1>",
+                    lambda e, em=emoji_char: self._pick_copy(em))
+
+    def _hide_corner_icon(self):
+        self._cv.delete("corner_icon")
+        self._corner_idx = None
+
+    # ── Pick: copy only (hover-corner click) ──────────────────────
+    def _pick_copy(self, emoji):
+        self.root.unbind("<FocusOut>")
         ok = _win32_copy(emoji)
         if not ok:
-            # Fallback to tkinter clipboard
             self.root.clipboard_clear()
             self.root.clipboard_append(emoji)
             self.root.update()
         self._stat.set(f"Copied  {emoji}  — paste with Ctrl+V")
         self.root.after(140, self.root.destroy)
 
-    # ── Auto-hide scrollbar ──────────────────────────────────────
+    # ── Pick: insert at cursor (default click) ────────────────────
+    def _pick_insert(self, emoji):
+        """Copies to the clipboard as a safety net, then types the
+        emoji directly into whatever window/field had focus before the
+        picker opened — the same approach the native Win+. panel uses.
+        Note: this can't reach an *elevated* (Run as Administrator)
+        window from a non-elevated process — that's a Windows security
+        boundary (UIPI), not something this script can work around."""
+        self.root.unbind("<FocusOut>")
+        _win32_copy(emoji)
+        self.root.withdraw()
+        if self._prev_hwnd and _focus_window(self._prev_hwnd):
+            time.sleep(0.03)   # give the target window a moment to activate
+            _send_unicode_text(emoji)
+        self.root.destroy()
+
+    # ── Auto-hide scrollbars (emoji grid + sidebar) ────────────────
     def _update_sb(self):
         try:
             sr = self._cv.cget("scrollregion")
@@ -425,6 +647,22 @@ class EmojiPicker:
                 self._vsb.grid(row=0, column=1, sticky="ns")
             else:
                 self._vsb.grid_remove()
+        except Exception:
+            pass
+
+    def _on_sidebar_cf_resize(self, event):
+        self._sbc.configure(scrollregion=self._sbc.bbox("all"))
+        self._update_sidebar_sb()
+
+    def _update_sidebar_sb(self):
+        try:
+            bbox = self._sbc.bbox("all")
+            content_h = bbox[3] if bbox else 0
+            view_h = self._sbc.winfo_height()
+            if content_h > view_h + 2:
+                self._sbv.grid(row=0, column=1, sticky="ns")
+            else:
+                self._sbv.grid_remove()
         except Exception:
             pass
 
