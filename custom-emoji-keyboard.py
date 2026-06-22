@@ -1,11 +1,15 @@
 #!/usr/bin/env python3
 """
-Emoji Picker  v1.2
+Emoji Picker  v1.3
 ────────────────────────────────────────────────────────────────────
 Lightweight Windows emoji keyboard — 20 custom categories.
 
 SETUP
   pip install pillow          ← required for full-color emoji rendering
+  Assets/emoji-images/        ← real Fluent 3D PNGs, alongside this
+                                 script; falls back to font-rendered
+                                 glyphs for any emoji missing a PNG
+                                 (see master_emojis.json for mapping)
 
 USAGE
   python custom-emoji-keyboard.py   ← run directly
@@ -22,7 +26,31 @@ CONTROLS
 """
 import tkinter as tk
 from tkinter import ttk
-import ctypes, ctypes.wintypes, platform, os, time, struct
+import ctypes, ctypes.wintypes, platform, os, time, struct, json
+
+# ════════════════════════════════════════════════════════════════════
+#  TEMPORARY STARTUP TIMING LOG
+#  Set DEBUG_TIMING = False (or delete this block + the _log_timing
+#  calls below) once you're done isolating AHK/launcher overhead from
+#  the app's own startup time. Writes to startup_log.txt next to this
+#  script; safe to delete that file any time, it's append-only.
+# ════════════════════════════════════════════════════════════════════
+DEBUG_TIMING = True
+_T_START = time.perf_counter()   # as close to "process started" as possible
+
+def _log_timing(label):
+    if not DEBUG_TIMING:
+        return
+    try:
+        log_path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                 "startup_log.txt")
+        elapsed = time.perf_counter() - _T_START
+        with open(log_path, "a", encoding="utf-8") as f:
+            f.write(f"{time.strftime('%H:%M:%S')}  +{elapsed:6.3f}s  {label}\n")
+    except Exception:
+        pass   # logging must never be able to crash the app
+
+_log_timing("stdlib imports done, importing Pillow")
 
 # ── Optional: Pillow for full-color emoji rendering ──────────────
 try:
@@ -30,6 +58,59 @@ try:
     HAS_PIL = True
 except ImportError:
     HAS_PIL = False
+
+_log_timing(f"Pillow import done (HAS_PIL={HAS_PIL})")
+
+def _get_resample_filter():
+    """LANCZOS resampling filter, or None if Pillow isn't installed.
+    Local re-import (cheap — already cached in sys.modules) gives the
+    type checker a definite binding instead of the try/except-imported
+    module-level name, which it can never fully resolve as "always
+    bound" without genuine data-flow correlation to HAS_PIL."""
+    if not HAS_PIL:
+        return None
+    from PIL import Image as _PILImage
+    return _PILImage.Resampling.LANCZOS
+
+_RESAMPLE = _get_resample_filter()
+
+# ════════════════════════════════════════════════════════════════════
+#  REAL EMOJI ART (Fluent 3D PNGs)
+#  Looks for master_emojis.json + Assets/emoji-images/ next to this
+#  script. Either one missing just means every emoji falls back to the
+#  font-rendered glyph below — nothing crashes, nothing is required.
+# ════════════════════════════════════════════════════════════════════
+USE_PNG_ASSETS = True   # flip to False to force font-rendered glyphs only
+USE_FONT_RENDER_FALLBACK = False   # see note in _get_photo() — off by default
+
+SCRIPT_DIR    = os.path.dirname(os.path.abspath(__file__))
+MANIFEST_PATH = os.path.join(SCRIPT_DIR, "master_emojis.json")
+ASSETS_DIR    = os.path.join(SCRIPT_DIR, "Assets", "emoji-images")
+
+
+def _load_png_manifest():
+    """Build {emoji_char: absolute_png_path} from master_emojis.json.
+    Entries with image=null (~10% of the set — mostly very recent
+    Unicode additions Microsoft hasn't illustrated yet) are skipped,
+    which lets them fall through to font rendering automatically."""
+    mapping = {}
+    if not USE_PNG_ASSETS:
+        return mapping
+    try:
+        with open(MANIFEST_PATH, encoding="utf-8") as f:
+            manifest = json.load(f)
+        for entry in manifest.values():
+            for variant in entry.get("variants", []):
+                img, char = variant.get("image"), variant.get("char")
+                if img and char:
+                    mapping[char] = os.path.join(ASSETS_DIR, img)
+    except Exception:
+        pass   # no manifest / bad JSON — fall back to font rendering for all
+    return mapping
+
+
+PNG_MANIFEST = _load_png_manifest()
+_log_timing(f"PNG manifest loaded ({len(PNG_MANIFEST)} entries)")
 
 # ════════════════════════════════════════════════════════════════════
 #  EMBEDDED EMOJI DATA  (auto-generated)
@@ -59,6 +140,7 @@ EMOJI_DATA = {
     "Objects": [("🎯", "bullseye"), ("🪀", "yo-yo"), ("🪁", "kite"), ("🔫", "water pistol"), ("🎱", "pool 8 ball"), ("🔮", "crystal ball"), ("🪄", "magic wand"), ("🎮", "video game"), ("🕹️", "joystick"), ("🎰", "slot machine"), ("🎲", "game die"), ("🧩", "puzzle piece"), ("🧸", "teddy bear"), ("🪅", "piñata"), ("🪩", "mirror ball"), ("🪆", "nesting dolls"), ("♠️", "spade suit"), ("♥️", "heart suit"), ("♦️", "diamond suit"), ("♣️", "club suit"), ("♟️", "chess pawn"), ("🃏", "joker"), ("🀄", "mahjong red dragon"), ("🎴", "flower playing cards"), ("🎭", "performing arts"), ("🖼️", "framed picture"), ("🎨", "artist palette"), ("🧵", "thread"), ("🪡", "sewing needle"), ("🧶", "yarn"), ("🪢", "knot"), ("👓", "glasses"), ("🕶️", "sunglasses"), ("🥽", "goggles"), ("🥼", "lab coat"), ("🦺", "safety vest"), ("👔", "necktie"), ("👕", "t-shirt"), ("👖", "jeans"), ("🧣", "scarf"), ("🧤", "gloves"), ("🧥", "coat"), ("🧦", "socks"), ("👗", "dress"), ("👘", "kimono"), ("🥻", "sari"), ("🩱", "one-piece swimsuit"), ("🩲", "briefs"), ("🩳", "shorts"), ("👙", "bikini"), ("👚", "woman’s clothes"), ("🪭", "folding hand fan"), ("👛", "purse"), ("👜", "handbag"), ("👝", "clutch bag"), ("🛍️", "shopping bags"), ("🎒", "backpack"), ("🩴", "thong sandal"), ("👞", "man’s shoe"), ("👟", "running shoe"), ("🥾", "hiking boot"), ("🥿", "flat shoe"), ("👠", "high-heeled shoe"), ("👡", "woman’s sandal"), ("🩰", "ballet shoes"), ("👢", "woman’s boot"), ("🪮", "hair pick"), ("👑", "crown"), ("👒", "woman’s hat"), ("🎩", "top hat"), ("🎓", "graduation cap"), ("🧢", "billed cap"), ("🪖", "military helmet"), ("⛑️", "rescue worker’s helmet"), ("📿", "prayer beads"), ("💄", "lipstick"), ("💍", "ring"), ("💎", "gem stone"), ("🔇", "muted speaker"), ("🔈", "speaker low volume"), ("🔉", "speaker medium volume"), ("🔊", "speaker high volume"), ("📢", "loudspeaker"), ("📣", "megaphone"), ("📯", "postal horn"), ("🔔", "bell"), ("🔕", "bell with slash"), ("🎼", "musical score"), ("🎵", "musical note"), ("🎶", "musical notes"), ("🎙️", "studio microphone"), ("🎚️", "level slider"), ("🎛️", "control knobs"), ("🎤", "microphone"), ("🎧", "headphone"), ("📻", "radio"), ("🎷", "saxophone"), ("🎺", "trumpet"), ("🪊", "trombone"), ("🪗", "accordion"), ("🎸", "guitar"), ("🎹", "musical keyboard"), ("🎻", "violin"), ("🪕", "banjo"), ("🥁", "drum"), ("🪘", "long drum"), ("🪇", "maracas"), ("🪈", "flute"), ("🪉", "harp"), ("📱", "mobile phone"), ("📲", "mobile phone with arrow"), ("☎️", "telephone"), ("📞", "telephone receiver"), ("📟", "pager"), ("📠", "fax machine"), ("🔋", "battery"), ("🪫", "low battery"), ("🔌", "electric plug"), ("💻", "laptop"), ("🖥️", "desktop computer"), ("🖨️", "printer"), ("⌨️", "keyboard"), ("🖱️", "computer mouse"), ("🖲️", "trackball"), ("💽", "computer disk"), ("💾", "floppy disk"), ("💿", "optical disk"), ("📀", "dvd"), ("🧮", "abacus"), ("🎥", "movie camera"), ("🎞️", "film frames"), ("📽️", "film projector"), ("🎬", "clapper board"), ("📺", "television"), ("📷", "camera"), ("📸", "camera with flash"), ("📹", "video camera"), ("📼", "videocassette"), ("🔍", "magnifying glass tilted left"), ("🔎", "magnifying glass tilted right"), ("🕯️", "candle"), ("💡", "light bulb"), ("🔦", "flashlight"), ("🏮", "red paper lantern"), ("🪔", "diya lamp"), ("📔", "notebook with decorative cover"), ("📕", "closed book"), ("📖", "open book"), ("📗", "green book"), ("📘", "blue book"), ("📙", "orange book"), ("📚", "books"), ("📓", "notebook"), ("📒", "ledger"), ("📃", "page with curl"), ("📜", "scroll"), ("📄", "page facing up"), ("📰", "newspaper"), ("🗞️", "rolled-up newspaper"), ("📑", "bookmark tabs"), ("🔖", "bookmark"), ("🏷️", "label"), ("🪙", "coin"), ("💰", "money bag"), ("🪎", "treasure chest"), ("💴", "yen banknote"), ("💵", "dollar banknote"), ("💶", "euro banknote"), ("💷", "pound banknote"), ("💸", "money with wings"), ("💳", "credit card"), ("🧾", "receipt"), ("💹", "chart increasing with yen"), ("✉️", "envelope"), ("📧", "e-mail"), ("📨", "incoming envelope"), ("📩", "envelope with arrow"), ("📤", "outbox tray"), ("📥", "inbox tray"), ("📦", "package"), ("📫", "closed mailbox with raised flag"), ("📪", "closed mailbox with lowered flag"), ("📬", "open mailbox with raised flag"), ("📭", "open mailbox with lowered flag"), ("📮", "postbox"), ("🗳️", "ballot box with ballot"), ("✏️", "pencil"), ("✒️", "black nib"), ("🖋️", "fountain pen"), ("🖊️", "pen"), ("🖌️", "paintbrush"), ("🖍️", "crayon"), ("📝", "memo"), ("💼", "briefcase"), ("📁", "file folder"), ("📂", "open file folder"), ("🗂️", "card index dividers"), ("📅", "calendar"), ("📆", "tear-off calendar"), ("🗒️", "spiral notepad"), ("🗓️", "spiral calendar"), ("📇", "card index"), ("📈", "chart increasing"), ("📉", "chart decreasing"), ("📊", "bar chart"), ("📋", "clipboard"), ("📌", "pushpin"), ("📍", "round pushpin"), ("📎", "paperclip"), ("🖇️", "linked paperclips"), ("📏", "straight ruler"), ("📐", "triangular ruler"), ("✂️", "scissors"), ("🗃️", "card file box"), ("🗄️", "file cabinet"), ("🗑️", "wastebasket"), ("🔒", "locked"), ("🔓", "unlocked"), ("🔏", "locked with pen"), ("🔐", "locked with key"), ("🔑", "key"), ("🗝️", "old key"), ("🔨", "hammer"), ("🪓", "axe"), ("⛏️", "pick"), ("⚒️", "hammer and pick"), ("🛠️", "hammer and wrench"), ("🗡️", "dagger"), ("⚔️", "crossed swords"), ("💣", "bomb"), ("🪃", "boomerang"), ("🏹", "bow and arrow"), ("🛡️", "shield"), ("🪚", "carpentry saw"), ("🔧", "wrench"), ("🪛", "screwdriver"), ("🔩", "nut and bolt"), ("⚙️", "gear"), ("🗜️", "clamp"), ("⚖️", "balance scale"), ("🦯", "white cane"), ("🔗", "link"), ("⛓️‍💥", "broken chain"), ("⛓️", "chains"), ("🪝", "hook"), ("🧰", "toolbox"), ("🧲", "magnet"), ("🪜", "ladder"), ("🪏", "shovel"), ("⚗️", "alembic"), ("🧪", "test tube"), ("🧫", "petri dish"), ("🧬", "dna"), ("🔬", "microscope"), ("🔭", "telescope"), ("📡", "satellite antenna"), ("💉", "syringe"), ("🩸", "drop of blood"), ("💊", "pill"), ("🩹", "adhesive bandage"), ("🩼", "crutch"), ("🩺", "stethoscope"), ("🩻", "x-ray"), ("🚪", "door"), ("🛗", "elevator"), ("🪞", "mirror"), ("🪟", "window"), ("🛏️", "bed"), ("🛋️", "couch and lamp"), ("🪑", "chair"), ("🚽", "toilet"), ("🪠", "plunger"), ("🚿", "shower"), ("🛁", "bathtub"), ("🪤", "mouse trap"), ("🪒", "razor"), ("🧴", "lotion bottle"), ("🧷", "safety pin"), ("🧹", "broom"), ("🧺", "basket"), ("🧻", "roll of paper"), ("🪣", "bucket"), ("🧼", "soap"), ("🫧", "bubbles"), ("🪥", "toothbrush"), ("🧽", "sponge"), ("🧯", "fire extinguisher"), ("🛒", "shopping cart"), ("🚬", "cigarette"), ("⚰️", "coffin"), ("🪦", "headstone"), ("⚱️", "funeral urn"), ("🧿", "nazar amulet"), ("🪬", "hamsa"), ("🗿", "moai"), ("🪧", "placard"), ("🪪", "identification card")],
     "Signs & Symbols": [("🏧", "ATM sign"), ("🚮", "litter in bin sign"), ("🚰", "potable water"), ("♿", "wheelchair symbol"), ("🚹", "men’s room"), ("🚺", "women’s room"), ("🚻", "restroom"), ("🚼", "baby symbol"), ("🚾", "water closet"), ("🛂", "passport control"), ("🛃", "customs"), ("🛄", "baggage claim"), ("🛅", "left luggage"), ("⚠️", "warning"), ("🚸", "children crossing"), ("⛔", "no entry"), ("🚫", "prohibited"), ("🚳", "no bicycles"), ("🚭", "no smoking"), ("🚯", "no littering"), ("🚱", "non-potable water"), ("🚷", "no pedestrians"), ("📵", "no mobile phones"), ("🔞", "no one under eighteen"), ("☢️", "radioactive"), ("☣️", "biohazard"), ("⬆️", "up arrow"), ("↗️", "up-right arrow"), ("➡️", "right arrow"), ("↘️", "down-right arrow"), ("⬇️", "down arrow"), ("↙️", "down-left arrow"), ("⬅️", "left arrow"), ("↖️", "up-left arrow"), ("↕️", "up-down arrow"), ("↔️", "left-right arrow"), ("↩️", "right arrow curving left"), ("↪️", "left arrow curving right"), ("⤴️", "right arrow curving up"), ("⤵️", "right arrow curving down"), ("🔃", "clockwise vertical arrows"), ("🔄", "counterclockwise arrows button"), ("🔙", "BACK arrow"), ("🔚", "END arrow"), ("🔛", "ON! arrow"), ("🔜", "SOON arrow"), ("🔝", "TOP arrow"), ("🛐", "place of worship"), ("⚛️", "atom symbol"), ("🕉️", "om"), ("✡️", "star of David"), ("☸️", "wheel of dharma"), ("☯️", "yin yang"), ("✝️", "latin cross"), ("☦️", "orthodox cross"), ("☪️", "star and crescent"), ("☮️", "peace symbol"), ("🕎", "menorah"), ("🔯", "dotted six-pointed star"), ("🪯", "khanda"), ("♈", "Aries"), ("♉", "Taurus"), ("♊", "Gemini"), ("♋", "Cancer"), ("♌", "Leo"), ("♍", "Virgo"), ("♎", "Libra"), ("♏", "Scorpio"), ("♐", "Sagittarius"), ("♑", "Capricorn"), ("♒", "Aquarius"), ("♓", "Pisces"), ("⛎", "Ophiuchus"), ("🔀", "shuffle tracks button"), ("🔁", "repeat button"), ("🔂", "repeat single button"), ("▶️", "play button"), ("⏩", "fast-forward button"), ("⏭️", "next track button"), ("⏯️", "play or pause button"), ("◀️", "reverse button"), ("⏪", "fast reverse button"), ("⏮️", "last track button"), ("🔼", "upwards button"), ("⏫", "fast up button"), ("🔽", "downwards button"), ("⏬", "fast down button"), ("⏸️", "pause button"), ("⏹️", "stop button"), ("⏺️", "record button"), ("⏏️", "eject button"), ("🎦", "cinema"), ("🔅", "dim button"), ("🔆", "bright button"), ("📶", "antenna bars"), ("🛜", "wireless"), ("📳", "vibration mode"), ("📴", "mobile phone off"), ("♀️", "female sign"), ("♂️", "male sign"), ("⚧️", "transgender symbol"), ("✖️", "multiply"), ("➕", "plus"), ("➖", "minus"), ("➗", "divide"), ("🟰", "heavy equals sign"), ("♾️", "infinity"), ("‼️", "double exclamation mark"), ("⁉️", "exclamation question mark"), ("❓", "red question mark"), ("❔", "white question mark"), ("❕", "white exclamation mark"), ("❗", "red exclamation mark"), ("〰️", "wavy dash"), ("💱", "currency exchange"), ("💲", "heavy dollar sign"), ("⚕️", "medical symbol"), ("♻️", "recycling symbol"), ("⚜️", "fleur-de-lis"), ("🔱", "trident emblem"), ("📛", "name badge"), ("🔰", "Japanese symbol for beginner"), ("⭕", "hollow red circle"), ("✅", "check mark button"), ("☑️", "check box with check"), ("✔️", "check mark"), ("❌", "cross mark"), ("❎", "cross mark button"), ("➰", "curly loop"), ("➿", "double curly loop"), ("〽️", "part alternation mark"), ("✳️", "eight-spoked asterisk"), ("✴️", "eight-pointed star"), ("❇️", "sparkle"), ("©️", "copyright"), ("®️", "registered"), ("™️", "trade mark"), ("🫟", "splatter"), ("#️⃣", "keycap: #"), ("*️⃣", "keycap: *"), ("0️⃣", "keycap: 0"), ("1️⃣", "keycap: 1"), ("2️⃣", "keycap: 2"), ("3️⃣", "keycap: 3"), ("4️⃣", "keycap: 4"), ("5️⃣", "keycap: 5"), ("6️⃣", "keycap: 6"), ("7️⃣", "keycap: 7"), ("8️⃣", "keycap: 8"), ("9️⃣", "keycap: 9"), ("🔟", "keycap: 10"), ("🔠", "input latin uppercase"), ("🔡", "input latin lowercase"), ("🔢", "input numbers"), ("🔣", "input symbols"), ("🔤", "input latin letters"), ("🅰️", "A button (blood type)"), ("🆎", "AB button (blood type)"), ("🅱️", "B button (blood type)"), ("🆑", "CL button"), ("🆒", "COOL button"), ("🆓", "FREE button"), ("ℹ️", "information"), ("🆔", "ID button"), ("Ⓜ️", "circled M"), ("🆕", "NEW button"), ("🆖", "NG button"), ("🅾️", "O button (blood type)"), ("🆗", "OK button"), ("🅿️", "P button"), ("🆘", "SOS button"), ("🆙", "UP! button"), ("🆚", "VS button"), ("🈁", "Japanese “here” button"), ("🈂️", "Japanese “service charge” button"), ("🈷️", "Japanese “monthly amount” button"), ("🈶", "Japanese “not free of charge” button"), ("🈯", "Japanese “reserved” button"), ("🉐", "Japanese “bargain” button"), ("🈹", "Japanese “discount” button"), ("🈚", "Japanese “free of charge” button"), ("🈲", "Japanese “prohibited” button"), ("🉑", "Japanese “acceptable” button"), ("🈸", "Japanese “application” button"), ("🈴", "Japanese “passing grade” button"), ("🈳", "Japanese “vacancy” button"), ("㊗️", "Japanese “congratulations” button"), ("㊙️", "Japanese “secret” button"), ("🈺", "Japanese “open for business” button"), ("🈵", "Japanese “no vacancy” button"), ("🔴", "red circle"), ("🟠", "orange circle"), ("🟡", "yellow circle"), ("🟢", "green circle"), ("🔵", "blue circle"), ("🟣", "purple circle"), ("🟤", "brown circle"), ("⚫", "black circle"), ("⚪", "white circle"), ("🟥", "red square"), ("🟧", "orange square"), ("🟨", "yellow square"), ("🟩", "green square"), ("🟦", "blue square"), ("🟪", "purple square"), ("🟫", "brown square"), ("⬛", "black large square"), ("⬜", "white large square"), ("◼️", "black medium square"), ("◻️", "white medium square"), ("◾", "black medium-small square"), ("◽", "white medium-small square"), ("▪️", "black small square"), ("▫️", "white small square"), ("🔶", "large orange diamond"), ("🔷", "large blue diamond"), ("🔸", "small orange diamond"), ("🔹", "small blue diamond"), ("🔺", "red triangle pointed up"), ("🔻", "red triangle pointed down"), ("💠", "diamond with a dot"), ("🔘", "radio button"), ("🔳", "white square button"), ("🔲", "black square button"), ("🇺🇸", "flag: United States")],
 }
+_log_timing("EMOJI_DATA dict parsed")
 CATEGORY_ICONS = {
     "Smileys":           "😀",  "Hearts":            "❤️",
     "Emotions":          "💯",  "Hands":             "👋",
@@ -88,7 +170,10 @@ FONT_EMOJI  = ("Segoe UI Emoji", 17)
 FONT_UI     = ("Segoe UI", 9)
 FONT_SIDE   = ("Segoe UI Emoji", 9)
 
-WIN_W, WIN_H = 780, 520
+WIN_W_DEFAULT, WIN_H_DEFAULT = 780, 520   # used on screens shorter than the threshold
+WIN_W_LARGE,   WIN_H_LARGE   = 800, 700   # used on screens at least this tall —
+LARGE_SCREEN_MIN_HEIGHT      = 1440       # big enough to show all 20 categories
+                                           # in the sidebar without scrolling
 CELL         = 46   # px per emoji cell (grid)
 SB_W         = 154  # sidebar width
 CORNER       = 16   # px size of the hover "copy only" zone, top-right of each cell
@@ -99,8 +184,17 @@ CORNER       = 16   # px size of the hover "copy only" zone, top-right of each c
 #  • Direct keystroke insertion (SendInput) — the same mechanism the
 #    native Windows emoji panel (Win+.) uses to type into whatever has
 #    focus, including full surrogate-pair support for emoji.
-#  • Foreground-window capture/restore (AttachThreadInput trick) since
-#    Windows normally blocks SetForegroundWindow from a background app.
+#  • Foreground-window restore via plain SetForegroundWindow. No
+#    AttachThreadInput trick needed: this call only ever happens as the
+#    direct result of the user's own click landing in OUR window, which
+#    is one of the documented conditions Windows exempts from its normal
+#    foreground-stealing restriction ("the calling process received the
+#    last input event" — see SetForegroundWindow's Win32 docs). Earlier
+#    versions used AttachThreadInput here, which is now the leading
+#    suspect for a real crash (see CHANGELOG/commit notes): it merges
+#    two threads' input-queue state at the OS level, and Tcl/Tk's own
+#    Windows message loop is not a safe thing to have entangled with an
+#    unrelated process's thread, even briefly.
 #
 #  IMPORTANT: every handle-returning API below gets an explicit
 #  restype/argtypes. ctypes defaults to treating return values as a
@@ -157,9 +251,6 @@ _user32.GetForegroundWindow.restype = _wt.HWND
 _user32.SetForegroundWindow.argtypes = [_wt.HWND]
 _user32.BringWindowToTop.argtypes   = [_wt.HWND]
 _user32.ShowWindow.argtypes         = [_wt.HWND, ctypes.c_int]
-_user32.GetWindowThreadProcessId.restype  = _wt.DWORD
-_user32.GetWindowThreadProcessId.argtypes = [_wt.HWND, ctypes.POINTER(_wt.DWORD)]
-_user32.AttachThreadInput.argtypes  = [_wt.DWORD, _wt.DWORD, _wt.BOOL]
 _user32.SendInput.restype           = ctypes.c_uint
 _user32.SendInput.argtypes          = [ctypes.c_uint, ctypes.POINTER(INPUT), ctypes.c_int]
 
@@ -194,21 +285,16 @@ def _win32_copy(text: str) -> bool:
 
 
 def _focus_window(hwnd) -> bool:
-    """Force `hwnd` to the foreground, bypassing Windows' normal
-    restriction on background processes stealing focus."""
+    """Restore foreground focus to `hwnd`. No thread-attachment trickery —
+    this is only ever called immediately after the user's own click lands
+    in our window, which already satisfies Windows' "received the last
+    input event" exemption from the normal foreground-stealing block."""
     if not hwnd:
         return False
     try:
-        cur_tid    = _kernel32.GetCurrentThreadId()
-        target_tid = _user32.GetWindowThreadProcessId(hwnd, None)
-        attached = False
-        if target_tid and target_tid != cur_tid:
-            attached = bool(_user32.AttachThreadInput(target_tid, cur_tid, True))
         _user32.ShowWindow(hwnd, SW_RESTORE)
         _user32.SetForegroundWindow(hwnd)
         _user32.BringWindowToTop(hwnd)
-        if attached:
-            _user32.AttachThreadInput(target_tid, cur_tid, False)
         return True
     except Exception:
         return False
@@ -242,12 +328,20 @@ def _send_unicode_text(text: str) -> bool:
 # ════════════════════════════════════════════════════════════════════
 class EmojiPicker:
     def __init__(self):
+        _log_timing("EmojiPicker.__init__ start")
         # Capture whatever window had focus *before* our window steals it —
         # this is what we restore focus to when inserting an emoji directly.
         self._prev_hwnd = _user32.GetForegroundWindow()
 
         self.root = tk.Tk()
         self.root.withdraw()
+
+        # Bigger default window on tall-enough screens, so all 20 categories
+        # show in the sidebar without scrolling right when it opens.
+        if self.root.winfo_screenheight() >= LARGE_SCREEN_MIN_HEIGHT:
+            self._win_w, self._win_h = WIN_W_LARGE, WIN_H_LARGE
+        else:
+            self._win_w, self._win_h = WIN_W_DEFAULT, WIN_H_DEFAULT
 
         self._cur_cat       = None
         self._search_active = False
@@ -260,12 +354,18 @@ class EmojiPicker:
         self._load_pil_font()
         self._build_ui()
         self._position()
+        _log_timing("UI built, window about to show")
 
         self.root.deiconify()
         self.root.lift()
         self.root.focus_force()
+
+        def _first_render():
+            self._sel_cat(next(iter(EMOJI_DATA)))
+            _log_timing("first category rendered — window is fully usable")
+
         # Defer first render — window appears immediately, then populates
-        self.root.after(0, lambda: self._sel_cat(next(iter(EMOJI_DATA))))
+        self.root.after(0, _first_render)
         self.root.mainloop()
 
     # ── DPI ──────────────────────────────────────────────────────────
@@ -278,8 +378,9 @@ class EmojiPicker:
 
     # ── PIL font ─────────────────────────────────────────────────────
     def _load_pil_font(self):
-        if not HAS_PIL:
+        if not HAS_PIL or not USE_FONT_RENDER_FALLBACK:
             return
+        from PIL import ImageFont
         candidates = [
             r"C:\Windows\Fonts\seguiemj.ttf",
             os.path.expandvars(r"%WINDIR%\Fonts\seguiemj.ttf"),
@@ -296,27 +397,58 @@ class EmojiPicker:
     def _get_photo(self, emoji: str):
         if emoji in self._photo_cache:
             return self._photo_cache[emoji]
-        if not HAS_PIL or not self._pil_font:
+        if not HAS_PIL:
             self._photo_cache[emoji] = None
             return None
-        try:
-            sz   = CELL - 4
-            img  = Image.new("RGBA", (sz, sz), (0, 0, 0, 0))
-            draw = ImageDraw.Draw(img)
-            # measure and center
-            bb = draw.textbbox((0, 0), emoji, font=self._pil_font,
-                               embedded_color=True)
-            ew, eh = bb[2] - bb[0], bb[3] - bb[1]
-            ox = (sz - ew) // 2 - bb[0]
-            oy = (sz - eh) // 2 - bb[1]
-            draw.text((ox, oy), emoji, font=self._pil_font,
-                      embedded_color=True)
-            photo = ImageTk.PhotoImage(img)
-            self._photo_cache[emoji] = photo
-            return photo
-        except Exception:
-            self._photo_cache[emoji] = None
-            return None
+        from PIL import Image, ImageDraw, ImageTk
+
+        sz    = CELL - 4
+        photo = None
+
+        # 1) Real Fluent emoji art, if we have a mapped + existing PNG
+        png_path = PNG_MANIFEST.get(emoji)
+        if png_path and os.path.isfile(png_path):
+            try:
+                img = Image.open(png_path).convert("RGBA")
+                if img.size != (sz, sz):
+                    img = img.resize((sz, sz), _RESAMPLE)
+                photo = ImageTk.PhotoImage(img)
+            except Exception:
+                photo = None
+
+        # 2) Fall back to color-rendering the system emoji font — OFF by
+        # default (USE_FONT_RENDER_FALLBACK). Pillow's basic text layout
+        # renders each codepoint's glyph individually; it doesn't perform
+        # the OpenType ligature substitution (GSUB) needed to compose a
+        # skin-tone modifier or gender sign into ONE glyph with the base
+        # person emoji. The result: the skin-tone modifier renders as its
+        # own little flesh-toned swatch next to the base glyph instead of
+        # blending into it — exactly the artifact in complex ZWJ sequences.
+        # Pillow *can* do this properly via its optional "raqm" (HarfBuzz)
+        # text-shaping engine, but the official Windows wheel only half-
+        # bundles it: raqm needs fribidi.dll on the DLL search path at
+        # runtime, which a plain `pip install pillow` doesn't provide.
+        # Until/unless that's set up, plain Tk canvas text (the next tier,
+        # in _render()) goes through Windows' own text shaping and renders
+        # these correctly — so we skip straight there instead.
+        if photo is None and USE_FONT_RENDER_FALLBACK and self._pil_font:
+            try:
+                img  = Image.new("RGBA", (sz, sz), (0, 0, 0, 0))
+                draw = ImageDraw.Draw(img)
+                bb = draw.textbbox((0, 0), emoji, font=self._pil_font,
+                                   embedded_color=True)
+                ew, eh = bb[2] - bb[0], bb[3] - bb[1]
+                ox = (sz - ew) // 2 - bb[0]
+                oy = (sz - eh) // 2 - bb[1]
+                draw.text((ox, oy), emoji, font=self._pil_font,
+                          embedded_color=True)
+                photo = ImageTk.PhotoImage(img)
+            except Exception:
+                photo = None
+
+        # 3) Neither worked — _render() falls back to a plain text glyph
+        self._photo_cache[emoji] = photo
+        return photo
 
     # ── Position near cursor (multi-monitor safe) ─────────────────────
     def _position(self):
@@ -330,12 +462,12 @@ class EmojiPicker:
         # Prefer opening below-right; flip if near screen edge
         x = mx + 10
         y = my + 10
-        if x + WIN_W > sw:
-            x = mx - WIN_W - 10
-        if y + WIN_H > sh:
-            y = my - WIN_H - 10
+        if x + self._win_w > sw:
+            x = mx - self._win_w - 10
+        if y + self._win_h > sh:
+            y = my - self._win_h - 10
         # Do NOT clamp to 0 — supports negative coords on left-of-primary monitors
-        self.root.geometry(f"{WIN_W}x{WIN_H}+{x}+{y}")
+        self.root.geometry(f"{self._win_w}x{self._win_h}+{x}+{y}")
 
     # ── Build UI ─────────────────────────────────────────────────────
     def _build_ui(self):
@@ -494,7 +626,7 @@ class EmojiPicker:
         cv.update_idletasks()
         w = cv.winfo_width()
         if w < CELL:
-            w = WIN_W - SB_W - 20
+            w = self._win_w - SB_W - 20
 
         cols = max(1, w // CELL)
         pad  = (w - cols * CELL) // 2   # horizontal centering

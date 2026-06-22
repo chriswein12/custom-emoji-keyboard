@@ -20,11 +20,20 @@
 ; HOW IT WORKS
 ;   • Opens custom-emoji-keyboard.py via pythonw (no console window)
 ;   • The picker appears near your mouse cursor
-;   • Click an emoji → it copies to clipboard; paste with Ctrl+V
+;   • Click an emoji → inserts it at your cursor (also copies it)
+;   • Hover an emoji's top-right corner → click to copy only
 ;   • Pressing the hotkey again while the picker is open closes it
 
 #Requires AutoHotkey v2.0
 #SingleInstance Force
+
+; Exact title matching only — the Python window is always titled exactly
+; "Emoji Picker" (see r.title(...) in the script), never anything else.
+; This used to default to "title contains this text anywhere", which
+; previously matched an unrelated, currently-open Explorer window whose
+; title happened to contain a near-identical string — closing THAT window
+; instead of the picker, and skipping the Run(...) line below entirely.
+SetTitleMatchMode(3)
 
 ; ── Path to custom-emoji-keyboard.py ──────────────────────────────────────
 ; By default, looks in the same folder as this .ahk file.
@@ -37,8 +46,8 @@ PICKER_SCRIPT := A_ScriptDir . "\custom-emoji-keyboard.py"
     global PICKER_SCRIPT
 
     ; Toggle: if already open, close it
-    if WinExist("Custom Emoji Keyboard") {
-        WinClose("Custom Emoji Keyboard")
+    if WinExist("Emoji Picker") {
+        WinClose("Emoji Picker")
         return
     }
 
